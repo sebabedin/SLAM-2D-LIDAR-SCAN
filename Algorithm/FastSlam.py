@@ -1,11 +1,20 @@
-import json
+
+import os
+import copy
+import pickle
+import logging
+
+import math
 import numpy as np
+import pandas as pd
+
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+
+import json
+
 from Utils.OccupancyGrid import OccupancyGrid
 from Utils.ScanMatcher_OGBased import ScanMatcher
-import math
-import copy
 
 class ParticleFilter:
     def __init__(self, numParticles, ogParameters, smParameters):
@@ -73,6 +82,7 @@ class Particle:
         self.xTrajectory = []
         self.yTrajectory = []
         self.weight = 1
+        self.yawTrajectory = []
 
     def updateEstimatedPose(self, currentRawReading):
         estimatedTheta = self.prevMatchedReading['theta'] + currentRawReading['theta'] - self.prevRawReading['theta']
@@ -129,7 +139,10 @@ class Particle:
             matchedReading, confidence = self.sm.matchScan(estimatedReading, estMovingDist, estMovingTheta, count, matchMax=False)
             self.prevRawMovingTheta = rawMovingTheta
             self.prevMatchedMovingTheta = self.getMovingTheta(matchedReading)
-        self.updateTrajectory(matchedReading)
+        
+        # self.updateTrajectory(matchedReading)
+        self.updateTrajectoryPose(matchedReading)
+        
         self.og.updateOccupancyGrid(matchedReading)
         self.prevMatchedReading, self.prevRawReading = matchedReading, reading
         self.weight *= confidence
@@ -138,6 +151,12 @@ class Particle:
         x, y = matchedReading['x'], matchedReading['y']
         self.xTrajectory.append(x)
         self.yTrajectory.append(y)
+    
+    def updateTrajectoryPose(self, matchedReading):
+        x, y, yaw = matchedReading['x'], matchedReading['y'], matchedReading['theta']
+        self.xTrajectory.append(x)
+        self.yTrajectory.append(y)
+        self.yawTrajectory.append(yaw)
 
     def plotParticle(self):
         plt.figure(figsize=(19.20, 19.20))
@@ -149,17 +168,29 @@ class Particle:
         plt.plot(self.xTrajectory, self.yTrajectory)
         self.og.plotOccupancyGrid([-13, 20], [-25, 7], plotThreshold=False)
 
-def processSensorData(pf, sensorData, plotTrajectory = True):
+# def processSensorData(pf, sensorData, plotTrajectory = True, fig_output_path='../Output/', pose_file_path=''):
+def processSensorData(results_path, pf, sensorData, logger, autosave_stepping=10, max_samples=0, fig_output_path='../Output/'):
     # gtData = readJson("../DataSet/PreprocessedData/intel_corrected_log") #########   For Debug Only  #############
+    
+    df_key = []
+    df_count = []
+    
     count = 0
     plt.figure(figsize=(19.20, 19.20))
     for key in sorted(sensorData.keys()):
+        # if (0 < max_samples) and (max_samples <= count):
+        #     break
+        
         count += 1
-        print(count)
+        
+        df_key.append(key)
+        df_count.append(count)
+        
+        logger.info(f'step {count}')
         pf.updateParticles(sensorData[key], count)
         if pf.weightUnbalanced():
             pf.resample()
-            print("resample")
+            logger.info("resample")
 
         plt.figure(figsize=(19.20, 19.20))
         maxWeight = -1
@@ -167,16 +198,53 @@ def processSensorData(pf, sensorData, plotTrajectory = True):
             if maxWeight < particle.weight:
                 maxWeight = particle.weight
                 bestParticle = particle
-                plt.plot(particle.xTrajectory, particle.yTrajectory)
+                # plt.plot(particle.xTrajectory, particle.yTrajectory)
+                
+                if '' != fig_output_path:
+                    x = np.array(particle.xTrajectory)
+                    y = np.array(particle.yTrajectory)
+                    theta = np.array(particle.yawTrajectory)
+                
+                    # Longitud de los vectores de orientación
+                    L = 0.5
+                
+                    # Componentes del vector orientación
+                    u = L * np.cos(theta)
+                    v = L * np.sin(theta)
+                
+                    plt.plot(x, y)
+                    plt.quiver(x, y, u, v, angles='xy', scale_units='xy', scale=1, color='blue')
+        
+        df = pd.DataFrame({
+            'key': df_key,
+            'count': df_count,
+            'x': bestParticle.xTrajectory,
+            'y': bestParticle.yTrajectory,
+            'theta': bestParticle.yawTrajectory
+        })
+        
+        csv_path = os.path.join(results_path, f'poses_autosave.csv')
+        df.to_csv(csv_path, index=False)
+        logger.debug(f'save csv: {csv_path}')
 
-        xRange, yRange = [-13, 20], [-25, 7]
-        ogMap = bestParticle.og.occupancyGridVisited / bestParticle.og.occupancyGridTotal
-        xIdx, yIdx = bestParticle.og.convertRealXYToMapIdx(xRange, yRange)
-        ogMap = ogMap[yIdx[0]: yIdx[1], xIdx[0]: xIdx[1]]
-        ogMap = np.flipud(1 - ogMap)
-        plt.imshow(ogMap, cmap='gray', extent=[xRange[0], xRange[1], yRange[0], yRange[1]])
-        plt.savefig('../Output/' + str(count).zfill(3) + '.png')
-        plt.close()
+        if 0 == (count % autosave_stepping):
+            workspace_path = os.path.join(results_path, f'workspace_autosave.pkl')
+            with open(workspace_path, 'wb') as f:
+                workspace = (count, sensorData, pf)
+                pickle.dump(workspace, f)
+            logger.debug(f'save workspace: {workspace_path}')
+
+        # if '' != fig_output_path:
+        #     xRange, yRange = [-13, 20], [-25, 7]
+        #     ogMap = bestParticle.og.occupancyGridVisited / bestParticle.og.occupancyGridTotal
+        #     xIdx, yIdx = bestParticle.og.convertRealXYToMapIdx(xRange, yRange)
+        #     ogMap = ogMap[yIdx[0]: yIdx[1], xIdx[0]: xIdx[1]]
+        #     ogMap = np.flipud(1 - ogMap)
+        #     plt.imshow(ogMap, cmap='gray', extent=[xRange[0], xRange[1], yRange[0], yRange[1]])
+        #
+        #     fig_path = os.path.join(fig_output_path, f'fig_{str(count).zfill(3)}.png')
+        #     plt.savefig(fig_path)
+        #     plt.close()
 
         #if count == 100:
         #     break
@@ -187,6 +255,26 @@ def processSensorData(pf, sensorData, plotTrajectory = True):
             maxWeight = particle.weight
             bestParticle = particle
     bestParticle.plotParticle()
+    
+    df = pd.DataFrame({
+        'key': df_key,
+        'count': df_count,
+        'x': bestParticle.xTrajectory,
+        'y': bestParticle.yTrajectory,
+        'theta': bestParticle.yawTrajectory
+    })
+    # df.to_csv(f'{pose_path}poses.csv', index=False)
+
+    csv_path = os.path.join(results_path, f'poses.csv')
+    df.to_csv(csv_path, index=False)
+    logger.info(f'save csv: {csv_path}')
+
+    pf_path = os.path.join(results_path, f'pf.pkl')
+    with open(pf_path, 'wb') as f:
+        pickle.dump(pf, f)
+    logger.info(f'save pf: {pf_path}')
+    
+    logger.info(f'end')
 
 def readJson(jsonFile):
     with open(jsonFile, 'r') as f:
@@ -198,6 +286,7 @@ def main():
     scanMatchSearchRadius, scanMatchSearchHalfRad, scanSigmaInNumGrid, wallThickness, moveRSigma, maxMoveDeviation, turnSigma, \
         missMatchProbAtCoarse, coarseFactor = 1.4, 0.25, 2, 5 * unitGridSize, 0.1, 0.25, 0.3, 0.15, 5
     sensorData = readJson("../DataSet/PreprocessedData/intel_gfs")
+    # sensorData = readJson("../DataSet/PreprocessedData/intel_raw_refTime")
     numSamplesPerRev = len(sensorData[list(sensorData)[0]]['range'])  # Get how many points per revolution
     initXY = sensorData[sorted(sensorData.keys())[0]]
     numParticles = 10
