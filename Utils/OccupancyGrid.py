@@ -184,7 +184,7 @@ def updateTrajectoryPlot(matchedReading, xTrajectory, yTrajectory, colors, count
 def main():
     initMapXLength, initMapYLength, unitGridSize, lidarFOV, lidarMaxRange = 10, 10, 0.02, np.pi, 10 # in Meters
     wallThickness = 7 * unitGridSize
-    jsonFile = "../DataSet/PreprocessedData/intel_gfs"
+    jsonFile = "../DataSet/PreprocessedData/csail_gfs"
     with open(jsonFile, 'r') as f:
         input = json.load(f)
         sensorData = input['map']

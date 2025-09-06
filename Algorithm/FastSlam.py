@@ -194,10 +194,11 @@ def readJson(jsonFile):
         return input['map']
 
 def main():
-    initMapXLength, initMapYLength, unitGridSize, lidarFOV, lidarMaxRange = 50, 50, 0.02, np.pi, 10  # in Meters
+    initMapXLength, initMapYLength, unitGridSize, lidarFOV, lidarMaxRange = 100, 100, 0.02, np.pi, 20  # in Meters
     scanMatchSearchRadius, scanMatchSearchHalfRad, scanSigmaInNumGrid, wallThickness, moveRSigma, maxMoveDeviation, turnSigma, \
         missMatchProbAtCoarse, coarseFactor = 1.4, 0.25, 2, 5 * unitGridSize, 0.1, 0.25, 0.3, 0.15, 5
-    sensorData = readJson("../DataSet/PreprocessedData/intel_gfs")
+    # sensorData = readJson("../DataSet/PreprocessedData/intel_gfs")
+    sensorData = readJson("../DataSet/PreprocessedData/csail_gfs")
     numSamplesPerRev = len(sensorData[list(sensorData)[0]]['range'])  # Get how many points per revolution
     initXY = sensorData[sorted(sensorData.keys())[0]]
     numParticles = 10
