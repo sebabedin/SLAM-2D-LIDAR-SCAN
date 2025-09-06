@@ -7,35 +7,43 @@ from Utils.ScanMatcher_OGBased import ScanMatcher
 import math
 import copy
 
+
 class ParticleFilter:
+
     def __init__(self, numParticles, ogParameters, smParameters):
         self.numParticles = numParticles
         self.particles = []
+        print("d1")
         self.initParticles(ogParameters, smParameters)
+        print("d2")
         self.step = 0
         self.prevMatchedReading = None
         self.prevRawReading = None
         self.particlesTrajectory = []
 
     def initParticles(self, ogParameters, smParameters):
+        print("h1")
+        p_ref = Particle(ogParameters, smParameters)
+        print("h2")
         for i in range(self.numParticles):
-            p = Particle(ogParameters, smParameters)
+            print("d3")
+            p = copy.deepcopy(p_ref)
+            print("d4")
             self.particles.append(p)
 
     def updateParticles(self, reading, count):
         for i in range(self.numParticles):
             self.particles[i].update(reading, count)
 
-
     def weightUnbalanced(self):
         self.normalizeWeights()
         variance = 0
         for i in range(self.numParticles):
             variance += (self.particles[i].weight - 1 / self.numParticles) ** 2
-            #variance += self.particles[i].weight**2
+            # variance += self.particles[i].weight**2
         print(variance)
-        if variance > ((self.numParticles - 1) / self.numParticles)**2 + (self.numParticles - 1.000000000000001) * (1 / self.numParticles)**2:
-        #if variance > 2 / self.numParticles:
+        if variance > ((self.numParticles - 1) / self.numParticles) ** 2 + (self.numParticles - 1.000000000000001) * (1 / self.numParticles) ** 2:
+        # if variance > 2 / self.numParticles:
             return True
         else:
             return False
@@ -61,13 +69,18 @@ class ParticleFilter:
             self.particles[i] = copy.deepcopy(tempParticles[resampledParticlesIdx[i]])
             self.particles[i].weight = 1 / self.numParticles
 
+
 class Particle:
+
     def __init__(self, ogParameters, smParameters):
         initMapXLength, initMapYLength, initXY, unitGridSize, lidarFOV, lidarMaxRange, numSamplesPerRev, wallThickness = ogParameters
-        scanMatchSearchRadius, scanMatchSearchHalfRad, scanSigmaInNumGrid,  moveRSigma, maxMoveDeviation,\
-        turnSigma, missMatchProbAtCoarse, coarseFactor  = smParameters
+        scanMatchSearchRadius, scanMatchSearchHalfRad, scanSigmaInNumGrid, moveRSigma, maxMoveDeviation, \
+        turnSigma, missMatchProbAtCoarse, coarseFactor = smParameters
+        print("e1")
         og = OccupancyGrid(initMapXLength, initMapYLength, initXY, unitGridSize, lidarFOV, numSamplesPerRev, lidarMaxRange, wallThickness)
+        print("e2")
         sm = ScanMatcher(og, scanMatchSearchRadius, scanMatchSearchHalfRad, scanSigmaInNumGrid, moveRSigma, maxMoveDeviation, turnSigma, missMatchProbAtCoarse, coarseFactor)
+        print("e3")
         self.og = og
         self.sm = sm
         self.xTrajectory = []
@@ -147,12 +160,14 @@ class Particle:
             plt.scatter(self.xTrajectory[i], self.yTrajectory[i], color=next(colors), s=35)
         plt.scatter(self.xTrajectory[-1], self.yTrajectory[-1], color=next(colors), s=500)
         plt.plot(self.xTrajectory, self.yTrajectory)
-        self.og.plotOccupancyGrid([-13, 20], [-25, 7], plotThreshold=False)
+        # self.og.plotOccupancyGrid([-13, 20], [-25, 7], plotThreshold=False)
+        self.og.plotOccupancyGrid(plotThreshold=False)
 
-def processSensorData(pf, sensorData, plotTrajectory = True):
+
+def processSensorData(pf, sensorData, plotTrajectory=True):
     # gtData = readJson("../DataSet/PreprocessedData/intel_corrected_log") #########   For Debug Only  #############
     count = 0
-    plt.figure(figsize=(19.20, 19.20))
+    # plt.figure(figsize=(19.20, 19.20))
     for key in sorted(sensorData.keys()):
         count += 1
         print(count)
@@ -161,52 +176,81 @@ def processSensorData(pf, sensorData, plotTrajectory = True):
             pf.resample()
             print("resample")
 
-        plt.figure(figsize=(19.20, 19.20))
+        # plt.figure(figsize=(19.20, 19.20))
+        fig, ax = plt.subplots(figsize=(19.20, 19.20))
         maxWeight = -1
         for particle in pf.particles:
             if maxWeight < particle.weight:
                 maxWeight = particle.weight
                 bestParticle = particle
-                plt.plot(particle.xTrajectory, particle.yTrajectory)
+                # plt.plot(particle.xTrajectory, particle.yTrajectory)
+                ax.plot(particle.xTrajectory, particle.yTrajectory)
 
         xRange, yRange = [-13, 20], [-25, 7]
         ogMap = bestParticle.og.occupancyGridVisited / bestParticle.og.occupancyGridTotal
         xIdx, yIdx = bestParticle.og.convertRealXYToMapIdx(xRange, yRange)
         ogMap = ogMap[yIdx[0]: yIdx[1], xIdx[0]: xIdx[1]]
         ogMap = np.flipud(1 - ogMap)
-        plt.imshow(ogMap, cmap='gray', extent=[xRange[0], xRange[1], yRange[0], yRange[1]])
-        plt.savefig('../Output/' + str(count).zfill(3) + '.png')
-        plt.close()
+        
+        # plt.imshow(ogMap, cmap='gray', extent=[xRange[0], xRange[1], yRange[0], yRange[1]])
+        # plt.savefig('../Output/' + str(count).zfill(3) + '.png')
+        # plt.close()
+        # ax.imshow(ogMap, cmap='gray', extent=[xRange[0], xRange[1], yRange[0], yRange[1]])
+        ax.imshow(ogMap)
+        fig.savefig('../Output/' + str(count).zfill(3) + '.png')
+        plt.close(fig)
 
-        #if count == 100:
+        # if count == 100:
         #     break
     maxWeight = 0
     for particle in pf.particles:
-        particle.plotParticle()
+        # particle.plotParticle()
         if maxWeight < particle.weight:
             maxWeight = particle.weight
             bestParticle = particle
     bestParticle.plotParticle()
+
 
 def readJson(jsonFile):
     with open(jsonFile, 'r') as f:
         input = json.load(f)
         return input['map']
 
+
 def main():
-    initMapXLength, initMapYLength, unitGridSize, lidarFOV, lidarMaxRange = 100, 100, 0.02, np.pi, 20  # in Meters
-    scanMatchSearchRadius, scanMatchSearchHalfRad, scanSigmaInNumGrid, wallThickness, moveRSigma, maxMoveDeviation, turnSigma, \
-        missMatchProbAtCoarse, coarseFactor = 1.4, 0.25, 2, 5 * unitGridSize, 0.1, 0.25, 0.3, 0.15, 5
+    initMapXLength = 5
+    initMapYLength = 5
+    unitGridSize = 0.02
+    lidarFOV = np.pi
+    lidarMaxRange = 20  # in Meters
+    
+    scanMatchSearchRadius = 1.4
+    scanMatchSearchHalfRad = 0.25
+    scanSigmaInNumGrid = 2
+    wallThickness = 5 * unitGridSize
+    moveRSigma = 0.1
+    maxMoveDeviation = 0.25
+    turnSigma = 0.3
+    missMatchProbAtCoarse = 0.15
+    coarseFactor = 5
+    
     # sensorData = readJson("../DataSet/PreprocessedData/intel_gfs")
-    sensorData = readJson("../DataSet/PreprocessedData/csail_gfs")
+    # sensorData = readJson("../DataSet/PreprocessedData/csail_gfs")
+    
+    sensorData = readJson("../DataSet/PreprocessedData/short_csail_gfs")
     numSamplesPerRev = len(sensorData[list(sensorData)[0]]['range'])  # Get how many points per revolution
     initXY = sensorData[sorted(sensorData.keys())[0]]
     numParticles = 10
+    
     ogParameters = [initMapXLength, initMapYLength, initXY, unitGridSize, lidarFOV, lidarMaxRange, numSamplesPerRev, wallThickness]
     smParameters = [scanMatchSearchRadius, scanMatchSearchHalfRad, scanSigmaInNumGrid, moveRSigma, maxMoveDeviation, turnSigma, \
         missMatchProbAtCoarse, coarseFactor]
+    
+    print("aaaaaaaaaaaaa")
     pf = ParticleFilter(numParticles, ogParameters, smParameters)
+    print("bbbbbbbbbbbb")
     processSensorData(pf, sensorData, plotTrajectory=True)
+
 
 if __name__ == '__main__':
     main()
