@@ -1,11 +1,15 @@
+import os
 import json
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from Utils.OccupancyGrid import OccupancyGrid
 from Utils.ScanMatcher_OGBased import ScanMatcher
 import math
 import copy
+import pickle
+import logging
 
 
 class ParticleFilter:
@@ -85,6 +89,7 @@ class Particle:
         self.sm = sm
         self.xTrajectory = []
         self.yTrajectory = []
+        self.yawTrajectory = []
         self.weight = 1
 
     def updateEstimatedPose(self, currentRawReading):
@@ -142,7 +147,10 @@ class Particle:
             matchedReading, confidence = self.sm.matchScan(estimatedReading, estMovingDist, estMovingTheta, count, matchMax=False)
             self.prevRawMovingTheta = rawMovingTheta
             self.prevMatchedMovingTheta = self.getMovingTheta(matchedReading)
-        self.updateTrajectory(matchedReading)
+        
+        # self.updateTrajectory(matchedReading)
+        self.updateTrajectoryPose(matchedReading)
+        
         self.og.updateOccupancyGrid(matchedReading)
         self.prevMatchedReading, self.prevRawReading = matchedReading, reading
         self.weight *= confidence
@@ -151,6 +159,12 @@ class Particle:
         x, y = matchedReading['x'], matchedReading['y']
         self.xTrajectory.append(x)
         self.yTrajectory.append(y)
+
+    def updateTrajectoryPose(self, matchedReading):
+        x, y, yaw = matchedReading['x'], matchedReading['y'], matchedReading['theta']
+        self.xTrajectory.append(x)
+        self.yTrajectory.append(y)
+        self.yawTrajectory.append(yaw)
 
     def plotParticle(self):
         plt.figure(figsize=(19.20, 19.20))
@@ -164,12 +178,20 @@ class Particle:
         self.og.plotOccupancyGrid(plotThreshold=False)
 
 
-def processSensorData(pf, sensorData, plotTrajectory=True):
+def processSensorData(results_path, pf, sensorData, plotTrajectory=True):
     # gtData = readJson("../DataSet/PreprocessedData/intel_corrected_log") #########   For Debug Only  #############
+    
+    df_key = []
+    df_count = []
+    
     count = 0
     # plt.figure(figsize=(19.20, 19.20))
     for key in sorted(sensorData.keys()):
         count += 1
+        
+        df_key.append(key)
+        df_count.append(count)
+        
         print(count)
         pf.updateParticles(sensorData[key], count)
         if pf.weightUnbalanced():
@@ -197,8 +219,20 @@ def processSensorData(pf, sensorData, plotTrajectory=True):
         # plt.close()
         # ax.imshow(ogMap, cmap='gray', extent=[xRange[0], xRange[1], yRange[0], yRange[1]])
         ax.imshow(ogMap)
-        fig.savefig('../Output/' + str(count).zfill(3) + '.png')
+        fig.savefig('../Output/imgs/' + str(count).zfill(3) + '.png')
         plt.close(fig)
+
+        df = pd.DataFrame({
+            'key': df_key,
+            'count': df_count,
+            'x': bestParticle.xTrajectory,
+            'y': bestParticle.yTrajectory,
+            'theta': bestParticle.yawTrajectory
+        })
+        
+        # csv_path = os.path.join(results_path, f'poses_autosave.csv')
+        df.to_csv(results_path, index=False)
+        # logger.debug(f'save csv: {csv_path}')
 
         # if count == 100:
         #     break
@@ -235,9 +269,9 @@ def main():
     coarseFactor = 5
     
     # sensorData = readJson("../DataSet/PreprocessedData/intel_gfs")
-    # sensorData = readJson("../DataSet/PreprocessedData/csail_gfs")
+    sensorData = readJson("../DataSet/PreprocessedData/csail_gfs")
     
-    sensorData = readJson("../DataSet/PreprocessedData/short_csail_gfs")
+    # sensorData = readJson("../DataSet/PreprocessedData/short_csail_gfs")
     numSamplesPerRev = len(sensorData[list(sensorData)[0]]['range'])  # Get how many points per revolution
     initXY = sensorData[sorted(sensorData.keys())[0]]
     numParticles = 10
@@ -246,10 +280,12 @@ def main():
     smParameters = [scanMatchSearchRadius, scanMatchSearchHalfRad, scanSigmaInNumGrid, moveRSigma, maxMoveDeviation, turnSigma, \
         missMatchProbAtCoarse, coarseFactor]
     
+    poses_path = "../Output/csail_poses.csv"
+    
     print("aaaaaaaaaaaaa")
     pf = ParticleFilter(numParticles, ogParameters, smParameters)
     print("bbbbbbbbbbbb")
-    processSensorData(pf, sensorData, plotTrajectory=True)
+    processSensorData(poses_path, pf, sensorData, plotTrajectory=True)
 
 
 if __name__ == '__main__':
